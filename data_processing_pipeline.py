@@ -1,6 +1,7 @@
 import re
 import unicodedata
 import hashlib
+import sqlite3
 from datasets import load_dataset
 from bs4 import BeautifulSoup
 
@@ -53,3 +54,28 @@ def clean_text(example):
     text = normalize_whitespace(text)
 
     return {"text": text}
+
+
+# FILTER FUNCTIONS
+def filter_length(example, min_len=50, max_len=10000):
+    return min_len <= len(example["text"]) <= max_len
+
+
+# DEDUPLICATION
+conn = sqlite3.connect("dedup.db")
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS hashes (hash TEXT PRIMARY KEY)")
+
+
+def is_duplicated(text):
+    hash = hashlib.md5(text.encode("utf-8")).hexdigest()
+    try:
+        cursor.execute("INSERT INTO hashes(hash) VALUES(?)", (hash,))
+        conn.commit()
+        return False
+    except sqlite3.IntegrityError:
+        return True
+
+
+def deduplicate(example):
+    return not is_duplicated(example["text"])
