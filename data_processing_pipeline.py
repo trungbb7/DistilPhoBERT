@@ -1,6 +1,7 @@
 import os
 import re
 import unicodedata
+import underthesea
 import hashlib
 import sqlite3
 from datasets import load_dataset, Dataset
@@ -15,12 +16,11 @@ def remove_html(text):
     return BeautifulSoup(text, "html.parser").get_text(separator=" ")
 
 
-def normalize_unicode(text):
-    return unicodedata.normalize("NFC", text)
-
-
-def remove_control_chars(text):
-    return re.sub(r"[\x00-\x1F\x7F]", " ", text)
+def normalize_vietnamese_text(text):
+    # NFC normalization
+    text = unicodedata.normalize("NFC", text)
+    # Diacritics normalization
+    return underthesea.text_normalize(text)
 
 
 def normalize_punctuation(text):
@@ -32,13 +32,23 @@ def normalize_punctuation(text):
 
 def remove_boilerplate(text):
     patterns = [
-        r"Xem thêm.*",
-        r"Theo .*",
+        r"Xem thêm:.*",
         r"Bản quyền.*",
+        r"\s\(Ảnh: .*?\)",
+        r"Ảnh: .*",
+        r"\s\(Ảnh minh họa: .*\).",
+        r"Ảnh minh họa.",
+        r"\(Nguồn: .*\)\.",
+        r"\s\(Theo .*\)",
+        r"\/\.",
     ]
     for p in patterns:
         text = re.sub(p, "", text)
     return text
+
+
+def remove_control_chars(text):
+    return re.sub(r"[\x00-\x1F\x7F]", " ", text)
 
 
 def normalize_whitespace(text):
@@ -50,17 +60,17 @@ def clean_text(example):
     text = example["content"]
 
     text = remove_html(text)
-    text = normalize_unicode(text)
-    text = remove_control_chars(text)
+    text = normalize_vietnamese_text(text)
     text = normalize_punctuation(text)
     text = remove_boilerplate(text)
+    text = remove_control_chars(text)
     text = normalize_whitespace(text)
 
     return {"text": text}
 
 
 # FILTER FUNCTIONS
-def filter_length(example, min_len=50, max_len=10000):
+def filter_length(example, min_len=500, max_len=10000):
     return min_len <= len(example["text"]) <= max_len
 
 
