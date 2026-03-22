@@ -34,9 +34,10 @@ def remove_boilerplate(text):
     patterns = [
         r"Xem thêm:.*",
         r"Bản quyền.*",
-        r"\s\(Ảnh: .*?\)",
+        r"\s\(Ảnh: .*?\)\.?",
         r"Ảnh: .*",
         r"\s\(Ảnh minh họa: .*\).",
+        r"\s\(Ảnh minh họa\)",
         r"Ảnh minh họa.",
         r"\(Nguồn: .*\)\.",
         r"\s\(Theo .*\)",
@@ -45,6 +46,58 @@ def remove_boilerplate(text):
     for p in patterns:
         text = re.sub(p, "", text)
     return text
+
+
+def is_author_info(line):
+    line = line.strip()
+
+    patterns = [
+        r"^[\W\s]+$",
+        r"^[A-Z\sÁÀẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶĐÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ\w-]+\.?$",
+        r".*\(Tổng hợp\).*",
+        r".*\(Theo .*\).*",
+        r".*\(Tiếp tục .*\).*",
+        r".*\(TTXVN\).*",
+        r".*(Báo|Đón xem|Tổng hợp|Mời|Theo).*",
+        r"^(PV|CTV|Bài và ảnh|Nguồn|Ảnh|Video|Từ khóa|Clip|Video):.*",
+        r"^\w+\s\w+\s?\(.*\)$",
+    ]
+
+    for pattern in patterns:
+        if re.match(pattern, line):
+            return True
+
+    words = line.split()
+    if not (1 <= len(words) <= 4):
+        return False
+    is_capitalized = all(word[0].isupper() for word in words if word[0].isalpha())
+
+    return is_capitalized
+
+
+def clean_author_info(text):
+    lines = text.strip().split("\n")
+    if not text or not text.strip():
+        return ""
+
+    max_inspector_lines = min(3, len(lines) - 1)
+
+    inspector_lines = lines[-max_inspector_lines:]
+    remaining_inspectors_lines = []
+    for line in inspector_lines:
+        if not is_author_info(line):
+            remaining_inspectors_lines.append(line)
+
+    new_lines = lines[:-max_inspector_lines] + remaining_inspectors_lines
+    new_text = "\n".join(new_lines).strip()
+    sp = new_text.split(".")
+    if len(sp) <= 1:
+        return new_text
+    target = sp[-2]
+    if len(target.split()) >= 4:
+        return new_text
+    new_text = ".".join(sp[:-2] + sp[-1:]).strip()
+    return new_text
 
 
 def remove_control_chars(text):
@@ -63,6 +116,7 @@ def clean_text(example):
     text = normalize_vietnamese_text(text)
     text = normalize_punctuation(text)
     text = remove_boilerplate(text)
+    text = clean_author_info(text)
     text = remove_control_chars(text)
     text = normalize_whitespace(text)
 
