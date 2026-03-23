@@ -16,11 +16,8 @@ def remove_html(text):
     return BeautifulSoup(text, "html.parser").get_text(separator=" ")
 
 
-def normalize_vietnamese_text(text):
-    # NFC normalization
-    text = unicodedata.normalize("NFC", text)
-    # Diacritics normalization
-    return underthesea.text_normalize(text)
+def normalize_nfc(text):
+    return unicodedata.normalize("NFC", text)
 
 
 def normalize_punctuation(text):
@@ -53,7 +50,7 @@ def is_author_info(line):
 
     patterns = [
         r"^[\W\s]+$",
-        r"^[A-Z\sÁÀẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶĐÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ\w-]+\.?$",
+        r"^[A-Z\sÁÀẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶĐÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ-]+\.?$",
         r".*\(Tổng hợp\).*",
         r".*\(Theo .*\).*",
         r".*\(Tiếp tục .*\).*",
@@ -113,7 +110,7 @@ def clean_text(example):
     text = example["content"]
 
     text = remove_html(text)
-    text = normalize_vietnamese_text(text)
+    text = normalize_nfc(text)
     text = normalize_punctuation(text)
     text = remove_boilerplate(text)
     text = clean_author_info(text)
