@@ -1,13 +1,14 @@
 import os
 import re
 import unicodedata
-import underthesea
 import hashlib
-import sqlite3
-from datasets import load_dataset, Dataset
-import pyarrow as pa
-import pyarrow.parquet as pq
 from bs4 import BeautifulSoup
+import py_vncorenlp
+from datasets import load_dataset
+from huggingface_hub import login
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # CLEANING FUNCTIONS
 
@@ -39,6 +40,7 @@ def remove_boilerplate(text):
         r"\(Nguồn: .*\)\.",
         r"\s\(Theo .*\)",
         r"\/\.",
+        r">>",
     ]
     for p in patterns:
         text = re.sub(p, "", text)
@@ -121,80 +123,63 @@ def clean_text(example):
 
 
 # FILTER FUNCTIONS
-def filter_length(example, min_len=500, max_len=10000):
+def filter_length(example, min_len=500, max_len=20000):
     return min_len <= len(example["text"]) <= max_len
 
 
-# DEDUPLICATION
-conn = sqlite3.connect("dedup.db")
-cursor = conn.cursor()
-cursor.execute("CREATE TABLE IF NOT EXISTS hashes (hash TEXT PRIMARY KEY)")
+seen = set()
 
 
-def is_duplicated(text):
-    hash = hashlib.md5(text.encode("utf-8")).hexdigest()
-    try:
-        cursor.execute("INSERT INTO hashes(hash) VALUES(?)", (hash,))
-        conn.commit()
+def dedup(example):
+    h = hashlib.md5(example["text"].encode()).hexdigest()
+    if h in seen:
         return False
-    except sqlite3.IntegrityError:
-        return True
+    seen.add(h)
+    return True
 
 
-def deduplicate(example):
-    return not is_duplicated(example["text"])
-
-
-# Load dataset
-dataset = load_dataset(
-    "parquet", data_files="datasets/temp/*.parquet", split="train", streaming=True
+# Word segmentation
+segmenter = py_vncorenlp.VnCoreNLP(
+    annotators=["wseg"],
+    save_dir="/content/gdrive/MyDrive/workspace/Libraries/vncorenlp",
 )
 
-# small_dataset = dataset.take(10)
+
+def segment(batch):
+    segmented_texts = []
+    for text in batch["text"]:
+        if len(text.strip()) > 0:
+            lines = segmenter.word_segment(text)
+            segmented_texts.append(" ".join(lines))
+        else:
+            segmented_texts.append("")
+    return {"text": segmented_texts}
+
+
+login(token=os.getenv("HUGGINGFACE_ACCESS_TOKEN"))
+
+# Load dataset
+dataset = load_dataset("ademax/binhvq-news-corpus", split="train")
 
 
 # Apply pipeline
 
 # 1. Clean text
-print("Cleaning text")
-dataset = dataset.map(clean_text, remove_columns=dataset.column_names)
+dataset = dataset.map(clean_text, remove_columns=dataset.column_names, num_proc=4)
 
 # 2. Filter
-print("Filter text")
-dataset = dataset.filter(filter_length)
+dataset = dataset.filter(filter_length, num_proc=4)
 
 # 3. Dedup
-print("Dedup text")
-dataset = dataset.filter(deduplicate)
+dataset = dataset.filter(dedup, num_proc=1)
 
-# Save Output
-print("Save output")
-output_path = "datasets/temp_output/out.parquet"
-batch_size = 10000
+# Text segmentation
+dataset = dataset.map(
+    segment, batched=True, batch_size=50, num_proc=4, desc="Text segmenting"
+)
 
-buffer = []
-writer = None
+dataset.save_to_disk(r"/content/gdrive/MyDrive/KLTN/datasets/segmented_ds")
 
-for example in dataset:
-    buffer.append({"text": example["text"]})
-    if len(buffer) >= batch_size:
-        table = pa.Table.from_pylist(buffer)
+# Push to hub
 
-        if writer is None:
-            writer = pq.ParquetWriter(output_path, table.schema)
-        writer.write_table(table)
-        buffer = []
-
-if buffer:
-    table = pa.Table.from_pylist(buffer)
-    if writer is None:
-        writer = pq.ParquetWriter(output_path, table.schema)
-        writer.write_table(table)
-if writer:
-    writer.close()
-
-
-# Cleaning steps
-cursor.close()
-conn.close()
-os.remove("dedup.db")
+dataset.push_to_hub("trungbb8/news-demo", max_shard_size="500MB", num_proc=4)

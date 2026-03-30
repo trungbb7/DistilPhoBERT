@@ -1,32 +1,28 @@
-# DistilPhoBERT: Knowledge Distillation for Vietnamese Language Models
+# DistilPhoBERT: A Compressed Variant of PhoBERT for Vietnamese NLP
 
-This repository contains the implementation and data preprocessing pipeline for **DistilPhoBERT**, a lightweight, fast, and efficient version of the PhoBERT model. This project aims to provide a high-performance transformer model for Vietnamese NLP tasks with a significantly smaller footprint.
+This repository contains the implementation and pre-training pipeline for **DistilPhoBERT**, a distilled version of the [PhoBERT](https://github.com/VinAIResearch/PhoBERT) model. By leveraging knowledge distillation, we aim to create a faster, smaller, and more efficient transformer model specifically optimized for Vietnamese natural language tasks.
+
+## 🚀 Features
+
+- **Efficiency:** Significant reduction in model size and inference latency compared to PhoBERT.
+- **Advanced Pre-processing:** Comprehensive pipeline for cleaning, normalizing, and segmenting Vietnamese news data.
+- **Modern Stack:** Built with `PyTorch`, `Hugging Face Transformers`, and `VnCoreNLP`.
 
 ---
 
-## 🏗 Project Overview
+## 📊 Dataset & Pre-processing
 
-DistilPhoBERT leverages Knowledge Distillation to compress the original PhoBERT architecture while retaining maximum linguistic accuracy. This specific section of the repository focuses on the **Data Engineering Pipeline** required to prepare high-quality Vietnamese text corpora for the distillation process.
+The model is pre-trained on a large-scale Vietnamese news corpus (~20GB). Quality data is the backbone of DistilPhoBERT, so we implemented a rigorous cleaning pipeline:
 
-## 📊 Data Preprocessing Pipeline
+### Cleaning Pipeline Highlights:
 
-To ensure the model learns from clean, high-signal data, we implement a multi-stage cleaning and filtering pipeline.
+1. **HTML & Noise Removal:** Stripped HTML tags and boilerplate text (ads, "See more" links).
+2. **Standardization:** Normalized to **Unicode NFC** and standardized punctuation.
+3. **Signature Stripping:** Heuristic-based removal of author names, locations, and journalist signatures.
+4. **Filtering:** Retained high-quality articles (500 - 20,000 characters).
+5. **Deduplication:** MD5-based exact match removal.
+6. **Word Segmentation:** Applied `VnCoreNLP` to handle Vietnamese compound words (e.g., `trí_tuệ nhân_tạo`).
 
-### 1. Cleaning & Normalization
+> **Dataset Availability:** The processed dataset is hosted on Hugging Face: [trungbb8/vietnamese-news-copus-segmented](https://huggingface.co/datasets/trungbb8/vietnamese-news-copus-segmented)
 
-- **HTML Stripping:** Removal of tags and noise from web-crawled data using `BeautifulSoup`.
-- **Unicode Normalization (NFC):** Converting all Vietnamese text to NFC form to ensure consistency between composite and pre-composed characters.
-- **Punctuation Standardizing:** Normalizing curly quotes, long dashes, and ellipses.
-- **Boilerplate Removal:** Advanced Regex patterns to strip "Read more" links, image captions, and copyright notices.
-- **Author Info Stripping:** Heuristic-based removal of journalist signatures and publication metadata at the end of articles.
-
-### 2. Quality Filtering
-
-- **Length Constraint:** Only documents between **500 and 10,000 characters** are retained to ensure sufficient context without introducing extreme outliers.
-- **Control Character Removal:** Stripping non-printable ASCII/Unicode control characters.
-
-### 3. Global Deduplication
-
-- **Method:** MD5 Hashing.
-- **Storage:** SQLite-backed hash tracking.
-- **Efficiency:** This prevents the model from over-fitting on repeated news articles or syndicated content across different domains.
+---
