@@ -1,4 +1,26 @@
-.env
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Training artifacts
+distilphobert_checkpoints/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+
+# OS files
+Thumbs.db
+Desktop.ini
 
 datasets/
 demo
+
