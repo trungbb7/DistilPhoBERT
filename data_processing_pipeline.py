@@ -2,13 +2,12 @@ import os
 import re
 import unicodedata
 import hashlib
+import sqlite3
+from datasets import load_dataset, Dataset, Features, Value, load_from_disk
+import pyarrow as pa
+import pyarrow.parquet as pq
 from bs4 import BeautifulSoup
-import py_vncorenlp
-from datasets import load_dataset
 from huggingface_hub import login
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # CLEANING FUNCTIONS
 
@@ -156,7 +155,34 @@ def segment(batch):
     return {"text": segmented_texts}
 
 
-login(token=os.getenv("HUGGINGFACE_ACCESS_TOKEN"))
+# Tokenizer
+tokenizer = AutoTokenizer.from_pretrained("vinai/phobert-base")
+
+
+def tokenize_fn(example):
+    return tokenizer(example["text"], return_attention_mask=False, truncation=False)
+
+
+# Group tokens into chunks of 256
+block_size = 256
+
+
+def group_texts(examples):
+    concatenated = []
+    for ids in examples["input_ids"]:
+        concatenated.extend(ids)
+
+    total_length = (len(concatenated) // block_size) * block_size
+
+    result = {
+        "input_ids": [
+            concatenated[i : i + block_size] for i in range(0, total_length, block_size)
+        ]
+    }
+    return result
+
+
+login(token=os.environ.get("HUGGINGFACE_ACCESS_TOKEN"))
 
 # Load dataset
 dataset = load_dataset("ademax/binhvq-news-corpus", split="train")
@@ -165,21 +191,26 @@ dataset = load_dataset("ademax/binhvq-news-corpus", split="train")
 # Apply pipeline
 
 # 1. Clean text
-dataset = dataset.map(clean_text, remove_columns=dataset.column_names, num_proc=4)
+dataset = dataset.map(clean_text, remove_columns=dataset.column_names, num_proc=1)
 
 # 2. Filter
-dataset = dataset.filter(filter_length, num_proc=4)
+dataset = dataset.filter(filter_length, num_proc=1)
 
 # 3. Dedup
 dataset = dataset.filter(dedup, num_proc=1)
 
-# Text segmentation
+# 4 Text segmentation
 dataset = dataset.map(
-    segment, batched=True, batch_size=50, num_proc=4, desc="Text segmenting"
+    segment, batched=True, batch_size=50, num_proc=1, desc="Text segmenting"
 )
 
-dataset.save_to_disk(r"/content/gdrive/MyDrive/KLTN/datasets/segmented_ds")
+# 5. Tokens chunking
+dataset = dataset.map(tokenize_fn, remove_columns=["text"])
+dataset = dataset.map(group_texts, batched=True)
+
+
+# Save to local
+dataset.save_to_disk(r"/content/gdrive/MyDrive/KLTN/datasets/test_segmented_ds")
 
 # Push to hub
-
-dataset.push_to_hub("trungbb8/news-demo", max_shard_size="500MB", num_proc=4)
+dataset.push_to_hub("trungbb8/vietnamese-news-corpus-tokenized")
