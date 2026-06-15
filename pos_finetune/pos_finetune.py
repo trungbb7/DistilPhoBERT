@@ -1,10 +1,11 @@
 import os
 import pandas as pd
+import numpy as np
 from transformers import AutoModelForTokenClassification
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 from transformers import AutoTokenizer
-from seqeval.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report, f1_score
 import copy
 
 batch_size = int(os.environ.get("BATCH_SIZE", 64))
@@ -35,16 +36,17 @@ class EarlyStoping:
             self.count = 0
 
 
-tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
+# tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
+tokenizer = AutoTokenizer.from_pretrained("trungbb8/distilphobert")
 
 
 train_df = pd.read_csv(
-    "/workspace/ner-train-mbert-processed.csv",
+    "/workspace/pos-train-processed.csv",
     keep_default_na=False,
     na_values=[""],
 )
 test_df = pd.read_csv(
-    "/workspace/ner-test-mbert-processed.csv",
+    "/workspace/pos-test-processed.csv",
     keep_default_na=False,
     na_values=[""],
 )
@@ -99,15 +101,40 @@ test_tokens, test_ids, test_labels, test_org, test_inside = group_sentence(
 # Group into chunk
 label2id = {
     "-100": -100,
-    "O": 0,
-    "B-PER": 1,
-    "I-PER": 2,
-    "B-LOC": 3,
-    "I-LOC": 4,
-    "B-ORG": 5,
-    "I-ORG": 6,
-    "B-MISC": 7,
-    "I-MISC": 8,
+    "Ns": 0,
+    "N": 1,
+    "V": 2,
+    "C": 3,
+    "A": 4,
+    "E": 5,
+    "R": 6,
+    "CH": 7,
+    "P": 8,
+    "Cc": 9,
+    "NNP": 10,
+    "Ne": 11,
+    "M": 12,
+    "Nc": 13,
+    "Nu": 14,
+    "L": 15,
+    "Nb": 16,
+    "T": 17,
+    "X": 18,
+    "Ny": 19,
+    "FW": 20,
+    "I": 21,
+    "Ni": 22,
+    "Z": 23,
+    "Vb": 24,
+    "O": 25,
+    "Vy": 26,
+    "I-NP": 27,
+    "V    ": 28,
+    "Ab": 29,
+    "B-NP": 30,
+    "NNPY": 31,
+    "Cb": 32,
+    "NPP": 33,
 }
 id2label = {v: k for k, v in label2id.items()}
 max_length = 256
@@ -177,6 +204,10 @@ train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
 test_dataset = NERDataset(grouped_test_ids, grouped_test_labels, grouped_test_inside)
 
+print(f"Train size: {len(train_dataset)}")
+print(f"Val size: {len(val_dataset)}")
+print(f"Test size: {len(test_dataset)}")
+
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
@@ -187,7 +218,8 @@ def eval(model, dataloader, test=False):
     model.eval()
     with torch.no_grad():
         y_true = []
-        y_pred = []
+        y_preds = []
+        insides = []
         for batch in dataloader:
             input_ids = batch["input_ids"].to(device)
             labels = batch["labels"]
@@ -196,19 +228,36 @@ def eval(model, dataloader, test=False):
 
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             logits = outputs.logits
-            for i in range(logits.shape[0]):
-                pred_ids = logits[i].argmax(dim=1).cpu().numpy()
-                lbls = labels[i]
-                pred_ids = pred_ids[inside[i].bool()]
-                lbls = lbls[inside[i].bool()]
+            pred_ids = logits.argmax(dim=-1).cpu().numpy()
+            y_preds.append(pred_ids)
+            y_true.append(labels.numpy())
+            insides.append(inside)
 
-                y_true.append([id2label[id.item()] for id in lbls])
-                y_pred.append([id2label[id.item()] for id in pred_ids])
+    y_true = [
+        id2label[label_id]
+        for batch in y_true
+        for sentence in batch
+        for label_id in sentence
+    ]
+    y_preds = [
+        id2label[label_id]
+        for batch in y_preds
+        for sentence in batch
+        for label_id in sentence
+    ]
+    insides = [i for batch in insides for sentence in batch for i in sentence]
+
+    y_true = np.array(y_true)
+    y_preds = np.array(y_preds)
+    insides = np.array(insides)
+
+    y_true = y_true[insides.astype(bool)]
+    y_preds = y_preds[insides.astype(bool)]
 
     model.train()
-    f1 = f1_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_preds, average="micro")
     if test:
-        print(classification_report(y_true, y_pred))
+        print(classification_report(y_true, y_preds))
     return f1
 
 
@@ -217,8 +266,9 @@ def eval(model, dataloader, test=False):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
+# model = AutoModelForTokenClassification.from_pretrained("bert-base-multilingual-cased", num_labels=34).to(device)
 model = AutoModelForTokenClassification.from_pretrained(
-    "bert-base-multilingual-cased", num_labels=9
+    "trungbb8/distilphobert", num_labels=34
 ).to(device)
 model.train()
 
@@ -256,7 +306,7 @@ for epoch in range(30):
 
     # eval
     f1 = eval(model, val_dataloader)
-    print(f"Epoch: {epoch} - F1 score: {f1}")
+    print(f"Epoch: {epoch + 1} - F1 score: {f1}")
     early_stoping(f1, model)
     if early_stoping.is_stop:
         print(f"Early stoping at {epoch} epoch")
@@ -266,7 +316,7 @@ if early_stoping.best_model_weights is not None:
     model.load_state_dict(early_stoping.best_model_weights)
 
 
-model.save_pretrained("mbert-ner-finetuned")
+model.save_pretrained("distilphobert-pos-finetuned")
 
 
 # Eval
